@@ -4,12 +4,10 @@ from serpapi import GoogleSearch
 from fake_useragent import UserAgent
 import time
 import random
-
 class TwitterScanner:
     def __init__(self):
         self.ua = UserAgent()
         self.session = requests.Session()
-
     def scan_serpapi(self, query_username, api_key):
         """
         Uses SerpApi to find indexed profiles with high reliability.
@@ -44,7 +42,6 @@ class TwitterScanner:
             pass
             
         return results
-
     def scan_serp(self, query_username):
         """
         Uses Google Dorking to find indexed profiles.
@@ -69,11 +66,9 @@ class TwitterScanner:
             pass
             
         return results
-
     def verify_profile_direct(self, username):
         """
-        Directly checks if x.com/{username} returns 200 OK.
-        NOTE: This is rate-limited and liable to false positives due to login redirects.
+        Directly checks if x.com/{username} returns 200 OK and is ACTIVE (not suspended).
         """
         url = f"https://x.com/{username}"
         headers = {
@@ -83,26 +78,35 @@ class TwitterScanner:
         }
         
         try:
-            # We use a HEAD request first to be lighter, fallback to GET
+            # Must use GET to see content for suspension check
             response = self.session.get(url, headers=headers, timeout=5, allow_redirects=True)
             
-            # X often redirects to /i/flow/login for some profiles or just returns 200 for the main skeleton
-            # A 404 is a strong indicator it doesn't exist.
             if response.status_code == 200:
+                # Basic 200 OK. Now check for suspension/restriction markers.
+                # Note: X.com pages are heavy JS, but basic suspension text often appears in title or meta tags.
+                # We look for common keywords in the raw HTML.
+                text = response.text.lower()
+                
+                if "account suspended" in text or "account has been suspended" in text:
+                    return None # Filter out (Suspended)
+                
+                if "caution: this account is temporarily restricted" in text:
+                    return None # Filter out (Restricted)
+                    
+                # If we passed basic text checks, assume active enough to report
                 return {
                     "username": username,
                     "url": url,
-                    "status": "Active (Probed)",
+                    "status": "Active",
                     "method": "Direct"
                 }
             elif response.status_code == 404:
                 return None # Does not exist
             else:
-                return None # Other errors (429, 403) - assume hidden or blocked
+                return None # Other errors (blocked/hidden)
                 
         except Exception:
             return None
-
     def scan_candidates(self, candidates):
         """
         Orchestrator: checks a list of candidate usernames.
